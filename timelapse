@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+
+from picamera import PiCamera
+from time import sleep, time
+from argparse import ArgumentParser
+import os
+from loguru import logger
+import io
+import subprocess
+
+
+def convert_time(s):
+    t = int(s[:-1])
+    if s.endswith('s'):
+        t *= 1 
+    elif s.endswith('m'):
+        t *= 60
+    elif s.endswith('h'):
+        t *= 3600
+    elif s.endswith('d'):
+        t *= 86400
+    return t
+
+
+def click(camera, awb, exp, img_path):
+    camera.exposure_mode = exp
+    camera.awb_mode = awb
+    sleep(2)
+    camera.capture(img_path, quality=100)
+
+
+if __name__ == '__main__':
+    p = ArgumentParser()
+    p.add_argument('--outdir', required=True)
+    p.add_argument('--logfile', required=True)
+    p.add_argument('--t_total', default='10s')
+    p.add_argument('--t_period', default='1s')
+    p.add_argument('--test', action='store_true')
+    args = p.parse_args()
+
+    logger.add(args.logfile, level='DEBUG')
+
+    t_total = convert_time(args.t_total)
+    t_period = convert_time(args.t_period)
+
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
+
+    camera = PiCamera()
+    camera.resolution = (2592, 1944)
+    camera.framerate = 15
+    camera.meter_mode = 'average'
+
+    start = time()
+    i_photo = 0
+    while time() < start + t_total:
+        logger.info(f'Starting exposure {i_photo}')
+        for exp in ['auto', 'night', 'backlight',
+                    'verylong']: 
+            for awb in ['auto', 'sunlight', 'cloudy', 
+                        'horizon']: 
+                img_path = f'{args.outdir}/image.{exp}.{awb}.{i_photo:04d}.jpg'
+                click(camera, awb, exp, img_path)
+                logger.info(f'   {img_path}')
+        logger.info(f'Sleeping for {args.t_period}')
+        sleep(t_period)
+        i_photo += 1
