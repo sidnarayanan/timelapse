@@ -1,0 +1,4 @@
+iso: 100
+t_calibrate: 10s
+t_total: 10h
+t_period: 1m 

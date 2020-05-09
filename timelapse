@@ -7,6 +7,9 @@ import os
 from loguru import logger
 import io
 import subprocess
+from fractions import Fraction
+import yaml
+from pprint import pformat
 
 
 def convert_time(s):
@@ -26,42 +29,96 @@ def click(camera, awb, exp, img_path):
     camera.exposure_mode = exp
     camera.awb_mode = awb
     sleep(2)
-    camera.capture(img_path, quality=100)
+    camera.capture(img_path, quality=85)
 
 
 if __name__ == '__main__':
     p = ArgumentParser()
-    p.add_argument('--outdir', required=True)
-    p.add_argument('--logfile', required=True)
+    p.add_argument('--config', '-c')
+    p.add_argument('--outdir')
+    p.add_argument('--logfile')
+    p.add_argument('--iso', type=int)
+    p.add_argument('--exp_mode')
+    p.add_argument('--awb_mode')
+    p.add_argument('--format', default='jpg')
+    p.add_argument('--framerate', type=int)
+    p.add_argument('--shutter_speed', type=float)
+    p.add_argument('--t_calibrate', default='10s')
     p.add_argument('--t_total', default='10s')
     p.add_argument('--t_period', default='1s')
-    p.add_argument('--test', action='store_true')
     args = p.parse_args()
+
+    if args.config is not None:
+        cfg = yaml.load(open(args.config, 'r'), Loader=yaml.FullLoader)
+        for k,v in cfg.items():
+            if not hasattr(args, k) or (getattr(args, k) is None):
+                setattr(args, k, v)
+    else:
+        cfg = {}
+
+    assert args.outdir is not None
+    if not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
+
+    for k,v in args.__dict__.items():
+        cfg[k] = v
+    yaml.dump(cfg, open(f'{args.outdir}/settings.yaml', 'w'))
+    
+    logger.info('\n' + pformat(cfg))
 
     logger.add(args.logfile, level='DEBUG')
 
     t_total = convert_time(args.t_total)
     t_period = convert_time(args.t_period)
+    t_calibrate = convert_time(args.t_calibrate)
 
-    if not os.path.exists(args.outdir):
-        os.makedirs(args.outdir)
+    camera = PiCamera(
+            resolution=(3280, 2464),
+            framerate=args.framerate,
+            sensor_mode=3
+        )
 
-    camera = PiCamera()
-    camera.resolution = (2592, 1944)
-    camera.framerate = 15
-    camera.meter_mode = 'average'
+    if args.shutter_speed is not None:
+        camera.shutter_speed = int(1e6 * args.shutter_speed)
+    if args.iso is not None:
+        camera.iso = args.iso
+    if args.exp_mode is not None:
+        camera.exposure_mode = args.exp_mode
+    if args.awb_mode is not None:
+        camera.awb_mode = args.awb_mode
+
+    logger.info('Starting calibration')
+    sleep(t_calibrate)
+
+    g = camera.awb_gains
+    if args.shutter_speed is None:
+        camera.shutter_speed = camera.exposure_speed
+    camera.exposure_mode = 'off'
+    camera.awb_mode = 'off'
+    camera.awb_gains = g
+
+    cfg['calib_shutter_speed'] = camera.shutter_speed
+    cfg['calib_exposure_speed'] = camera.exposure_speed
+    cfg['calib_awb'] = list([float(g) for g in camera.awb_gains])
+    cfg['calib_framerate'] = camera.framerate
+    cfg['calib_iso'] = camera.iso 
+    yaml.dump(cfg, open(f'{args.outdir}/settings_calibrated.yaml', 'w'))
+
+    sleep(2)
+
+    def dump_info():
+        logger.info(f'   ISO={camera.iso}, exp_sp={camera.exposure_speed}, shut_sp={camera.shutter_speed}, resolution={camera.resolution}, awb={camera.awb_gains}, fr={camera.framerate}')
+
+    logger.info('Done calibration')
+    dump_info()
 
     start = time()
-    i_photo = 0
-    while time() < start + t_total:
-        logger.info(f'Starting exposure {i_photo}')
-        for exp in ['auto', 'night', 'backlight',
-                    'verylong']: 
-            for awb in ['auto', 'sunlight', 'cloudy', 
-                        'horizon']: 
-                img_path = f'{args.outdir}/image.{exp}.{awb}.{i_photo:04d}.jpg'
-                click(camera, awb, exp, img_path)
-                logger.info(f'   {img_path}')
-        logger.info(f'Sleeping for {args.t_period}')
+    for filename in camera.capture_continuous(
+                f'{args.outdir}/image.{{counter:04d}}.jpg',
+                bayer=('raw' in args.format)
+            ):
+        logger.info(f'{filename}')
+        dump_info()
         sleep(t_period)
-        i_photo += 1
+        if time() > start + t_total:
+            break 

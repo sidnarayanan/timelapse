@@ -1,0 +1,6 @@
+framerate: 1
+shutter_speed: 0.25
+iso: 100
+t_calibrate: 20s
+t_total: 8h
+t_period: 1m
