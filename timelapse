@@ -13,6 +13,8 @@ from pprint import pformat
 
 
 def convert_time(s):
+    if s is None:
+        return 10 
     t = int(s[:-1])
     if s.endswith('s'):
         t *= 1 
@@ -43,9 +45,10 @@ if __name__ == '__main__':
     p.add_argument('--format', default='jpg')
     p.add_argument('--framerate', type=int)
     p.add_argument('--shutter_speed', type=float)
-    p.add_argument('--t_calibrate', default='10s')
-    p.add_argument('--t_total', default='10s')
-    p.add_argument('--t_period', default='1s')
+    p.add_argument('--rotate', type=int)
+    p.add_argument('--t_calibrate')
+    p.add_argument('--t_total')
+    p.add_argument('--t_period')
     args = p.parse_args()
 
     if args.config is not None:
@@ -78,6 +81,8 @@ if __name__ == '__main__':
             sensor_mode=3
         )
 
+    if args.rotate is not None:
+        camera.rotation = args.rotate
     if args.shutter_speed is not None:
         camera.shutter_speed = int(1e6 * args.shutter_speed)
     if args.iso is not None:
